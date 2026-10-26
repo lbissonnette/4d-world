@@ -1,0 +1,14 @@
+{
+  "name": "4d-world",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Proof of concept for a first-person 4D platformer, rendered as 3D cross-sections.",
+  "type": "module",
+  "scripts": {
+    "start": "python3 -m http.server 8080",
+    "test": "node tests/solve.mjs"
+  },
+  "devDependencies": {
+    "playwright": "^1.49.0"
+  }
+}

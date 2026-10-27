@@ -1,21 +1,25 @@
-// 4D geometry. Level pieces are axis-aligned hyperboxes (4D boxes).
+// Geometry for axis-aligned hyperboxes (N-dimensional boxes) and the 4D
+// tetrahedral slicer.
 //
-// A hyperbox's surface is eight cubic cells (two per axis). Each cube is cut
-// into six tetrahedra, so the surface is 48 tetrahedra. Slicing a tetrahedron
-// with the camera's 3D hyperplane gives a triangle or a quad, and the union of
-// those polygons is the surface of the 3D cross-section the player sees.
-// This is the same idea Engine4D (4D Golf) uses, done on the CPU instead of in
-// a vertex shader so the proof of concept stays easy to read and test.
+// A 4D hyperbox's surface is eight cubic cells (two per axis). Each cube is
+// cut into six tetrahedra, so the surface is 48 tetrahedra. Slicing a
+// tetrahedron with the camera's 3D hyperplane gives a triangle or a quad, and
+// the union of those polygons is the surface of the 3D cross-section the
+// player sees. This is what Engine4D (4D Golf) does in a vertex shader; here
+// it runs on the CPU so it stays easy to read and test. For 5D the surface
+// cells would be 4-simplices sliced twice; the box helpers below already work
+// for any DIM, the slicer does not.
 
-import { dot, sub, lerp } from './math4.js';
+import { DIM, lerp } from './math4.js';
 
 const PERMS3 = [
   [0, 1, 2], [0, 2, 1], [1, 0, 2], [1, 2, 0], [2, 0, 1], [2, 1, 0],
 ];
 
 // Returns { tets: Float32Array(n*16), cells: Int8Array(n*2) } where cells
-// holds [axis, sign] per tetrahedron so the renderer can tint ana/kata faces.
+// holds [axis, sign] per tetrahedron so the renderer can tint faces by cell.
 export function hyperboxTets(min, max) {
+  if (DIM !== 4) throw new Error('hyperboxTets is 4D only');
   const tets = [];
   const cells = [];
   for (let axis = 0; axis < 4; axis++) {
@@ -41,11 +45,11 @@ export function hyperboxTets(min, max) {
   return { tets: new Float32Array(tets), cells: new Int8Array(cells) };
 }
 
-// The 32 edges of a hyperbox, as pairs of corner indices (corner bits = xyzw).
+// Edges of a DIM-dimensional box as pairs of corner indices (corner bit k = axis k at max).
 export const HYPERBOX_EDGES = (() => {
   const edges = [];
-  for (let i = 0; i < 16; i++) {
-    for (let b = 0; b < 4; b++) {
+  for (let i = 0; i < (1 << DIM); i++) {
+    for (let b = 0; b < DIM; b++) {
       if (!(i & (1 << b))) edges.push([i, i | (1 << b)]);
     }
   }
@@ -53,17 +57,29 @@ export const HYPERBOX_EDGES = (() => {
 })();
 
 export function hyperboxCorner(min, max, i) {
-  return [
-    i & 1 ? max[0] : min[0],
-    i & 2 ? max[1] : min[1],
-    i & 4 ? max[2] : min[2],
-    i & 8 ? max[3] : min[3],
-  ];
+  const p = new Array(DIM);
+  for (let k = 0; k < DIM; k++) p[k] = i & (1 << k) ? max[k] : min[k];
+  return p;
 }
 
-// Slice one tetrahedron (world-space corners) against the hyperplane
-// dot(n, p - origin) = 0. Calls emit(a, b, c) for each world-space triangle.
-// Returns the number of triangles emitted (0, 1 or 2).
+// Transform a box by a point mapping and return the axis-aligned bounds of the
+// result. Exact for 90-degree rotations, since those map boxes to boxes.
+export function transformBoxBounds(min, max, fn) {
+  const nmin = new Array(DIM).fill(Infinity), nmax = new Array(DIM).fill(-Infinity);
+  for (let i = 0; i < (1 << DIM); i++) {
+    const p = fn(hyperboxCorner(min, max, i));
+    for (let k = 0; k < DIM; k++) {
+      nmin[k] = Math.min(nmin[k], p[k]);
+      nmax[k] = Math.max(nmax[k], p[k]);
+    }
+  }
+  // Snap to a fine grid so repeated rotations don't accumulate float noise.
+  const snap = (v) => Math.round(v * 1000) / 1000;
+  return { min: nmin.map(snap), max: nmax.map(snap) };
+}
+
+// Slice one tetrahedron (world-space corners at tets[offset..offset+16]) against
+// the hyperplane dot(n, p - origin) = 0. Calls emit(a, b, c) per triangle.
 const corner = [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]];
 const dist = [0, 0, 0, 0];
 const pos = [], neg = [];
@@ -103,21 +119,17 @@ export function sliceTet(tets, offset, n, origin, emit) {
   return 2;
 }
 
-// Nearest point on a hyperbox to p, in world space.
 export function nearestPointOnBox(min, max, p) {
-  return [
-    Math.min(max[0], Math.max(min[0], p[0])),
-    Math.min(max[1], Math.max(min[1], p[1])),
-    Math.min(max[2], Math.max(min[2], p[2])),
-    Math.min(max[3], Math.max(min[3], p[3])),
-  ];
+  return p.map((x, k) => Math.min(max[k], Math.max(min[k], x)));
 }
 
 export function boxContains(min, max, p, pad = 0) {
-  return p[0] >= min[0] - pad && p[0] <= max[0] + pad &&
-    p[1] >= min[1] - pad && p[1] <= max[1] + pad &&
-    p[2] >= min[2] - pad && p[2] <= max[2] + pad &&
-    p[3] >= min[3] - pad && p[3] <= max[3] + pad;
+  return p.every((x, k) => x >= min[k] - pad && x <= max[k] + pad);
 }
 
-export { dot, sub };
+// True when the box crosses the play plane: every axis other than sideways
+// (0) and up (1) has 0 strictly inside its range.
+export function boxInPlayPlane(min, max) {
+  for (let k = 2; k < DIM; k++) if (min[k] >= 0 || max[k] <= 0) return false;
+  return true;
+}

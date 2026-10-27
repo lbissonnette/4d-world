@@ -1,69 +1,57 @@
-// Sphere-vs-hyperbox physics for the player, modelled on Engine4D's
-// Physical4D: integrate velocity, then push the sphere out of every box it
-// overlaps and cancel the velocity component along each push.
+// Player physics on the play plane. The player is a sphere that only moves
+// sideways (x) and up (y); its depth and hidden coordinates stay at 0. It
+// collides with the (x, y) rectangle of every box that crosses the play plane,
+// using the same push-out scheme as Engine4D's Physical4D: move, then push the
+// sphere out of each overlap and cancel the velocity along the push.
 
-import { sub, dot, len, addScaled, scale } from './math4.js';
-import { nearestPointOnBox } from './mesh4.js';
+import { DIM } from './math4.js';
+import { boxInPlayPlane } from './mesh4.js';
 
-export const GRAVITY = 22;
-export const UP = [0, 1, 0, 0];
+export const GRAVITY = 26;
 
-export class Body4D {
+export class Body2D {
   constructor(radius) {
     this.radius = radius;
-    this.pos = [0, 0, 0, 0];
-    this.vel = [0, 0, 0, 0];
+    this.pos = new Array(DIM).fill(0);
+    this.vx = 0;
+    this.vy = 0;
     this.grounded = false;
-    this.groundNormalY = 0;
     this.lastHit = null;
   }
 
-  // accel: world-space movement acceleration (already perpendicular to gravity).
-  step(dt, accel, boxes, opts) {
+  // ax: sideways acceleration from input.
+  step(dt, ax, boxes, opts) {
     const { maxSpeed, groundDrag, airDrag, slopeLimit } = opts;
-    const v = this.vel;
-    // Horizontal (non-gravity) velocity gets drag; vertical keeps gravity only.
-    const vy = v[1];
-    let h = [v[0], 0, v[2], v[3]];
-    h = addScaled(h, accel, dt);
-    const drag = Math.pow(0.5, dt / (this.grounded ? groundDrag : airDrag));
-    h = scale(h, drag);
-    const hs = len(h);
-    if (hs > maxSpeed) h = scale(h, maxSpeed / hs);
-    this.vel = [h[0], vy - GRAVITY * dt, h[2], h[3]];
+    this.vx += ax * dt;
+    this.vx *= Math.pow(0.5, dt / (this.grounded ? groundDrag : airDrag));
+    this.vx = Math.max(-maxSpeed, Math.min(maxSpeed, this.vx));
+    this.vy -= GRAVITY * dt;
 
-    let p = addScaled(this.pos, this.vel, dt);
+    let x = this.pos[0] + this.vx * dt;
+    let y = this.pos[1] + this.vy * dt;
     this.grounded = false;
-    this.groundNormalY = 0;
     this.lastHit = null;
 
-    // Two passes so corner cases (two boxes at once) settle.
     for (let pass = 0; pass < 2; pass++) {
       for (const box of boxes) {
-        if (box.noCollide) continue;
-        const np = nearestPointOnBox(box.min, box.max, p);
-        const d = sub(p, np);
-        let dist = len(d);
-        let n;
-        if (dist < 1e-6) {
-          // Centre is inside the box: push straight up.
-          n = UP;
-          dist = 0;
-        } else {
-          n = scale(d, 1 / dist);
-        }
-        if (dist < this.radius) {
-          p = addScaled(p, n, this.radius - dist);
-          const vn = dot(this.vel, n);
-          if (vn < 0) this.vel = addScaled(this.vel, n, -vn);
+        if (box.noCollide || !boxInPlayPlane(box.min, box.max)) continue;
+        const nx = Math.min(box.max[0], Math.max(box.min[0], x));
+        const ny = Math.min(box.max[1], Math.max(box.min[1], y));
+        let dx = x - nx, dy = y - ny;
+        let d = Math.hypot(dx, dy);
+        if (d < 1e-6) { dx = 0; dy = 1; d = 0; }        // centre inside: push up
+        else { dx /= d; dy /= d; }
+        if (d < this.radius) {
+          const push = this.radius - d;
+          x += dx * push; y += dy * push;
+          const vn = this.vx * dx + this.vy * dy;
+          if (vn < 0) { this.vx -= dx * vn; this.vy -= dy * vn; }
           this.lastHit = box;
-          if (n[1] > slopeLimit) {
-            this.grounded = true;
-            this.groundNormalY = Math.max(this.groundNormalY, n[1]);
-          }
+          if (dy > slopeLimit) this.grounded = true;
         }
       }
     }
-    this.pos = p;
+    this.pos[0] = x;
+    this.pos[1] = y;
   }
 }

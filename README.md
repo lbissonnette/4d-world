@@ -1,10 +1,16 @@
 # 4D World
 
-Proof of concept for a first-person 4D platformer that could grow into a Steam
-game. The player walks, jumps and sidesteps through four spatial dimensions,
-and sees the world the way 4D Golf shows it: as a 3D cross-section of the 4D
-level, with translucent "ghosts" of the geometry that lies ana or kata of
-the current slice.
+Proof of concept for a side-on platformer whose levels live in four spatial
+dimensions. The player only ever moves left, right and up on a 2D plane, and
+sees that plane with depth, like a 2.5D platformer. Buttons in the level turn
+the whole world a quarter turn in one of the extra planes (sideways/depth,
+sideways/4th, depth/4th), swinging geometry that was hidden in the 4th
+dimension into the play plane. Think Fez, with two more planes to rotate in.
+
+Rendering follows 4D Golf: the level is a set of 4D boxes, and the view is a
+3D cross-section of them, taken at the player's position in the 4th
+dimension. Geometry hidden in the 4th dimension can be shown as ghost
+wireframes (pink is +w, cyan is -w).
 
 Everything runs in the browser with no build step. Open `index.html` over a
 local web server and click to play.
@@ -18,47 +24,43 @@ npm test             # drives a bot through every level in headless Chromium
 
 | Input | Action |
 | --- | --- |
-| W A S D | Move within your current 3D slice |
-| Q / E | Move kata (−w) / ana (+w) |
-| Space | Jump |
-| Mouse | Look (click the view to lock the pointer) |
-| Right mouse + move, or Z / C | Turn into the 4th dimension (rotate forward into w) |
-| V | Volume map: a view of the level with w shown as height |
-| G | Toggle ghost projections |
+| A / D or arrow keys | Move sideways |
+| Space, W or up | Jump |
+| Stand on a button | Turn the level 90° about that button in the button's plane |
+| G | Toggle ghost wireframes of geometry hidden in the 4th dimension |
 | R | Restart the level |
+
+Orange buttons turn sideways into depth (the Fez rotation). Pink buttons turn
+sideways into the 4th dimension. Cyan buttons swap depth with the 4th
+dimension, which brings hidden geometry into view as a preview. Every button
+can be pressed again once you step off it, and four presses bring the level
+back to where it was.
 
 ## How it works
 
-The design follows [Engine4D](https://github.com/HackerPoet/Engine4D), the
-MIT-licensed 4D layer behind 4D Golf, with the numerics simplified for a
-proof of concept:
+- `src/math4.js`: N-dimensional vectors and a rotation in any axis plane.
+  `DIM` is 4; the vector, box and rotation code works for any value. The
+  tetrahedral slicer is the one 4D-only piece (5D needs 4-simplices sliced
+  twice, which is how Engine4D's 5D mode works).
+- `src/mesh4.js`: each hyperbox's surface is eight cubes cut into 48
+  tetrahedra. Slicing a tetrahedron with the view's 3D hyperplane gives a
+  triangle or a quad; together they are the surface of the cross-section.
+  Also the axis-aligned bounds of a box after a 90° rotation.
+- `src/render.js`: rebuilds the sliced mesh in camera space every frame,
+  applying the in-progress rotation to the tetrahedra while a turn animates.
+  A clipping plane cuts open anything between the camera and the play plane
+  so the player is never hidden.
+- `src/physics.js`: the player is a sphere confined to the play plane. It
+  collides with the (x, y) rectangle of every box that crosses the plane,
+  with Engine4D-style push-out and velocity cancelling.
+- `src/game.js`: movement, jump buffering and coyote time, button presses,
+  the rotation animation (the player is frozen while the world turns, as in
+  Fez), and the axis readout that tracks where the level's axes have gone.
+- `src/levels.js`: three levels. Turn (sideways/depth), Ana (sideways/4th),
+  Two turns (depth/4th then sideways/depth).
 
-- `src/mesh4.js`: level pieces are axis-aligned hyperboxes. Each one's surface
-  is eight cubic cells cut into 48 tetrahedra. Slicing a tetrahedron with the
-  camera's 3D hyperplane yields a triangle or a quad, and the union of those
-  polygons is the surface of the 3D cross-section.
-- `src/render.js`: rebuilds the sliced mesh in camera space every frame and
-  hands it to three.js. Ghosts are the hyperbox edges projected by dropping
-  the camera-space w coordinate, pink for ana and cyan for kata. A 4D
-  checkerboard shader gives surfaces texture that changes as you move in w.
-- `src/physics.js`: the player is a sphere. Each fixed step pushes it out of
-  every hyperbox it overlaps along the nearest-point direction and cancels
-  the velocity along that push, which is the same scheme as `Physical4D`.
-- `src/game.js`: camera frame from yaw, a "w-turn" (rotation of forward into
-  w) and pitch; movement in the camera's flattened frame; jump buffering and
-  coyote time; the volume view as an interpolated second camera frame.
-- `src/levels.js`: three teaching levels. Sidestep (move ana/kata), Quarter
-  turn (look into w), Hyperstairs (both while climbing).
-
-Engine4D slices in a vertex shader with a lookup table; here it is done on
-the CPU so it stays easy to read and test. At a few hundred tetrahedra per
-level this is far from any limit.
-
-## Next steps
-
-See the research and MVP plan in the project. The intended path is to port
-these mechanics to Unity on a fork of Engine4D once the controls and level
-language feel right.
+The first version of this prototype was a first-person 4D platformer with a
+blind strafe along the 4th axis; it is in the git history.
 
 ## Licences
 

@@ -1,7 +1,7 @@
 // N-dimensional vector helpers. Vectors are plain arrays of length DIM.
-// Axis 0 is sideways (x), 1 is up (y), 2 is depth (z), 3 is the hidden
-// fourth axis (w). DIM is 4 for now; the vector, box and rotation code below
-// works for any DIM, the tetrahedral slicer in mesh4.js is 4D only.
+// Axis 0 is x, 1 is y (up), 2 is z, 3 is the fourth axis w (+w is "ana",
+// -w is "kata"). DIM is 4 for now; the vector, box and rotation code works
+// for any DIM, the tetrahedral slicer in mesh4.js is 4D only.
 
 export const DIM = 4;
 export const AXIS_NAMES = ['X', 'Y', 'Z', 'W', 'V'];
@@ -21,6 +21,9 @@ export function normalize(a) {
   return l > 1e-9 ? scale(a, 1 / l) : zero();
 }
 
+// Remove the component of a along unit vector n.
+export const reject = (a, n) => addScaled(a, n, -dot(a, n));
+
 // Rotate point p by `angle` radians in the plane spanned by axes a and b,
 // about `pivot`. Positive angle turns axis a toward axis b.
 export function rotateInPlane(p, a, b, angle, pivot) {
@@ -32,10 +35,26 @@ export function rotateInPlane(p, a, b, angle, pivot) {
   return out;
 }
 
-// A camera frame is DIM orthonormal row vectors. The first three (right, up,
-// forward) place the point for the 3D renderer; the rest are slice normals:
-// the slice is where every one of those coordinates is zero.
+// A camera frame is DIM orthonormal row vectors: right, up, forward, then
+// the slice normals. A world point becomes camera-space (x, y, z, w...) where
+// the 3D renderer draws (x, y, -z) and w is the signed distance from the slice.
 export function toCam(frame, camPos, p) {
   const d = sub(p, camPos);
   return frame.rows.map((r) => dot(r, d));
+}
+
+// Gram-Schmidt a set of row vectors back to orthonormal, used after
+// interpolating between two camera frames.
+export function orthonormalize(rows) {
+  const out = [];
+  for (const r of rows) {
+    let v = r;
+    for (const o of out) v = reject(v, o);
+    out.push(normalize(v));
+  }
+  return out;
+}
+
+export function lerpFrame(a, b, t) {
+  return { rows: orthonormalize(a.rows.map((r, i) => lerp(r, b.rows[i], t))) };
 }

@@ -9,8 +9,7 @@ import { toCam } from './math4.js';
 
 const ANA = new THREE.Color('#f06aa8');
 const KATA = new THREE.Color('#4cc3e6');
-const GHOST_RANGE = 14;
-export const CAMERA_DISTANCE = 11;
+const GHOST_RANGE = 9;
 
 export const BUTTON_COLORS = { '0,2': '#ff9f43', '0,3': '#f06aa8', '2,3': '#4cc3e6' };
 
@@ -193,11 +192,10 @@ export class Renderer4D {
   constructor(canvas) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-    this.renderer.localClippingEnabled = true;
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color('#0d1a24');
-    this.scene.fog = new THREE.Fog('#0d1a24', 22, 60);
-    this.camera = new THREE.PerspectiveCamera(50, 1, 0.05, 200);
+    this.scene.fog = new THREE.Fog('#0d1a24', 18, 60);
+    this.camera = new THREE.PerspectiveCamera(80, 1, 0.05, 200);
     this.camera.position.set(0, 0, 0);
     this.camera.lookAt(0, 0, -1);
 
@@ -206,19 +204,18 @@ export class Renderer4D {
     this.scene.add(sun);
     this.scene.add(new THREE.HemisphereLight('#cfe3f0', '#2a3a46', 1.3));
 
-    // Anything closer to the camera than the play plane (plus a little) is
-    // cut open so it never hides the player.
-    const clip = [new THREE.Plane(new THREE.Vector3(0, 0, -1), -(CAMERA_DISTANCE - 0.7))];
-    this.solidMat = withChecker(new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide, clippingPlanes: clip }));
+    this.solidMat = withChecker(new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide }));
     this.glowMat = withChecker(new THREE.MeshBasicMaterial({
-      vertexColors: true, side: THREE.DoubleSide, transparent: true, opacity: 0.5, depthWrite: false, clippingPlanes: clip,
+      vertexColors: true, side: THREE.DoubleSide, transparent: true, opacity: 0.5, depthWrite: false,
     }));
 
-    this.player = new THREE.Mesh(
+    // The player's own position, shown only in the pulled-back volume view.
+    this.marker = new THREE.Mesh(
       new THREE.SphereGeometry(0.4, 32, 20),
       new THREE.MeshLambertMaterial({ color: '#fff3b0', emissive: '#5a4a16' }),
     );
-    this.scene.add(this.player);
+    this.marker.visible = false;
+    this.scene.add(this.marker);
 
     this.solid = null;
     this.goal = null;
@@ -246,8 +243,15 @@ export class Renderer4D {
     this.solid.rebuild(frame, camPos, opts.xform);
     this.goal.rebuild(frame, camPos, opts.xform);
     this.ghosts.rebuild(frame, camPos, opts.ghosts, opts.xform);
-    const p = toCam(frame, camPos, opts.player);
-    this.player.position.set(p[0], p[1], -p[2]);
+    this.camera.fov = opts.fov;
+    this.camera.updateProjectionMatrix();
+    if (opts.marker) {
+      const m = toCam(frame, camPos, opts.marker);
+      this.marker.position.set(m[0], m[1], -m[2]);
+      this.marker.visible = true;
+    } else {
+      this.marker.visible = false;
+    }
     this.renderer.render(this.scene, this.camera);
   }
 }
